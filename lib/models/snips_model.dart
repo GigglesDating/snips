@@ -291,8 +291,27 @@ class VideoContent {
 
   factory VideoContent.fromJson(Map<String, dynamic> json) {
     try {
-      // Get the source URL and thumbnail
       final sourceUrl = json['source'] as String? ?? '';
+
+      // Handle placeholder S3_URL case
+      if (sourceUrl == 'S3_URL') {
+        debugPrint(
+          'Warning: Received placeholder S3_URL instead of actual URL',
+        );
+        return VideoContent(
+          source: '',
+          qualityUrls: {VideoQuality.auto: ''},
+          duration: 0,
+          resolution: const VideoResolution(
+            width: 0,
+            height: 0,
+            aspectRatio: 9 / 16,
+            bitrate: 0,
+          ),
+          error: 'Video URL not available',
+        );
+      }
+
       final thumbnail = json['thumbnail'] as String?;
 
       // Parse quality URLs if available

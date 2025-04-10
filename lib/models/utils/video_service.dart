@@ -106,6 +106,27 @@ class VideoService {
     debugPrint('🎥 VideoService: Quality: $quality');
     debugPrint('🎥 VideoService: Use cache: $useCache');
 
+    // Early validation of URL
+    if (url.isEmpty) {
+      throw Exception('Video URL cannot be empty');
+    }
+
+    // Try to parse the URL first to catch basic formatting issues
+    try {
+      final uri = Uri.parse(url);
+      if (!uri.hasScheme || !uri.hasAuthority) {
+        throw Exception(
+          'Invalid URL structure: URL must include scheme (http/https) and host',
+        );
+      }
+      if (uri.scheme != 'http' && uri.scheme != 'https') {
+        throw Exception('Invalid URL scheme: must be http or https');
+      }
+    } catch (e) {
+      debugPrint('🎥 VideoService: Basic URL validation failed: $e');
+      throw Exception('Invalid URL format: $e');
+    }
+
     final startTime = DateTime.now();
     int attempt = 0;
     VideoPlayerController? controller;
@@ -211,12 +232,44 @@ class VideoService {
   }
 
   static void _validateS3Url(String url) {
+    debugPrint('🎥 VideoService: Validating URL: $url');
+
+    if (url.isEmpty) {
+      throw Exception('Video URL cannot be empty');
+    }
+
+    // First validate basic URL structure
+    try {
+      final uri = Uri.parse(url);
+      debugPrint(
+        '🎥 VideoService: Parsed URI - Scheme: ${uri.scheme}, Host: ${uri.host}, Path: ${uri.path}',
+      );
+
+      if (!uri.hasScheme) {
+        throw Exception('URL must include a scheme (http/https)');
+      }
+      if (!uri.hasAuthority) {
+        throw Exception('URL must include a host');
+      }
+      if (uri.scheme != 'http' && uri.scheme != 'https') {
+        throw Exception('URL scheme must be http or https');
+      }
+    } catch (e) {
+      debugPrint('🎥 VideoService: URL parsing error: $e');
+      throw Exception('Invalid URL format: $e');
+    }
+
+    // Then check S3-specific parameters
     final expiresMatch = RegExp(r'X-Amz-Expires=(\d+)').firstMatch(url);
     if (expiresMatch != null) {
       final expiresIn = int.parse(expiresMatch.group(1)!);
       final dateMatch = RegExp(r'X-Amz-Date=([^&]+)').firstMatch(url);
       if (dateMatch != null) {
         final dateStr = dateMatch.group(1)!;
+        debugPrint(
+          '🎥 VideoService: S3 URL parameters - Expires: $expiresIn, Date: $dateStr',
+        );
+
         final signedDate = DateTime.parse(dateStr);
         final expiryDate = signedDate.add(Duration(seconds: expiresIn));
 
@@ -231,6 +284,8 @@ class VideoService {
         }
       }
     }
+
+    debugPrint('🎥 VideoService: URL validation passed successfully');
   }
 
   static Future<VideoPlayerController> _createControllerWithFallback(
