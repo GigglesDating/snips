@@ -379,7 +379,7 @@ class _SnipsScreenState extends State<SnipsScreen>
                       ),
                     ),
                     child: SvgPicture.asset(
-                      'assets/icons/snip/snip_upload.svg',
+                      'assets/snip_upload.svg',
                       width: screenWidth * 0.06,
                       height: screenWidth * 0.06,
                       colorFilter: const ColorFilter.mode(

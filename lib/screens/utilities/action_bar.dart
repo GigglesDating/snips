@@ -63,7 +63,7 @@ class ActionBar extends StatelessWidget {
   List<Widget> _buildActionButtons(double screenWidth, double screenHeight) {
     final buttons = [
       _buildActionButton(
-        iconPath: 'assets/icons/feed/like.svg',
+        iconPath: 'assets/feed/like.svg',
         onTap: () {
           HapticFeedback.lightImpact();
           onLikeTap();
@@ -87,7 +87,7 @@ class ActionBar extends StatelessWidget {
                 : 0,
       ),
       _buildActionButton(
-        iconPath: 'assets/icons/feed/comment.svg',
+        iconPath: 'assets/feed/comment.svg',
         onTap: onCommentTap,
         color:
             isDarkMode
@@ -106,7 +106,7 @@ class ActionBar extends StatelessWidget {
                 : 0,
       ),
       _buildActionButton(
-        iconPath: 'assets/icons/feed/share.svg',
+        iconPath: 'assets/feed/share.svg',
         onTap: onShareTap,
         color:
             isDarkMode

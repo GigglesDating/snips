@@ -118,7 +118,7 @@ class NavigationControllerState extends State<NavigationController>
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
+    return const AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.transparent,
@@ -126,97 +126,20 @@ class NavigationControllerState extends State<NavigationController>
         statusBarIconBrightness: Brightness.light,
         systemNavigationBarIconBrightness: Brightness.light,
       ),
-      child: Scaffold(
-        backgroundColor: isDarkMode ? Colors.black : Colors.white,
-        body: Stack(
-          children: [
-            // Main content with PageView
-            PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              physics: const NeverScrollableScrollPhysics(), // Disable swipe
-              itemCount: _navigationItems.length,
-              itemBuilder: (context, index) {
-                return KeepAliveWidget(
-                  active: _loadedTabs[index],
-                  child: _navigationItems[index].builder(),
-                );
-              },
-            ),
-
-            // Navigation bar with SOS button
-            if (_showNavBar)
-              Positioned(
-                bottom: bottomPadding,
-                left: 0,
-                right: 0,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.topCenter,
-                  children: [
-                    // Main navigation bar
-                    Container(
-                      margin: EdgeInsets.symmetric(
-                        horizontal: size.width * 0.05,
-                        vertical: size.height * 0.015,
-                      ),
-                      height: size.height * 0.075,
-                      child: Stack(
-                        children: [
-                          // SVG Background
-                          Positioned.fill(
-                            child: SvgPicture.asset(
-                              'assets/app/nav.svg',
-                              fit: BoxFit.fill,
-                              colorFilter: ColorFilter.mode(
-                                isDarkMode
-                                    ? const Color(0xFF333333)
-                                    : const Color(0xFF333333),
-                                BlendMode.srcIn,
-                              ),
-                            ),
-                          ),
-                          // Icons Row
-                          Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildNavItem(0),
-                                _buildNavItem(1),
-                                _buildNavItem(2),
-                                _buildNavItem(3),
-                                _buildProfileItem(4),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Floating SOS buttonr
-                    Positioned(
-                      top: -(size.height * 0.02),
-                      child: _buildSOSButton(),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
+      child: Text("hi"),
     );
   }
 
   String getIconPath(int index) {
     switch (index) {
       case 0:
-        return 'assets/icons/nav_bar/home.svg';
+        return 'assets/nav_bar/home.svg';
       case 1:
-        return 'assets/icons/nav_bar/swipe.svg';
+        return 'assets/nav_bar/swipe.svg';
       case 3:
-        return 'assets/icons/nav_bar/snips.svg';
+        return 'assets/nav_bar/snips.svg';
       default:
-        return 'assets/icons/nav_bar/home.svg';
+        return 'assets/nav_bar/home.svg';
     }
   }
 
@@ -329,7 +252,7 @@ class NavigationControllerState extends State<NavigationController>
                     maxWidth: size.width * 0.3,
                     maxHeight: size.width * 0.3,
                     child: Image.asset(
-                      'assets/icons/nav_bar/sos.gif',
+                      'assets/nav_bar/sos.gif',
                       fit: BoxFit.cover,
                       width: size.width * 0.3,
                       height: size.width * 0.3,
@@ -338,7 +261,7 @@ class NavigationControllerState extends State<NavigationController>
                 )
                 : Center(
                   child: SvgPicture.asset(
-                    'assets/icons/nav_bar/sos.svg',
+                    'assets/nav_bar/sos.svg',
                     width: size.width * 0.13,
                     height: size.width * 0.13,
                     colorFilter: ColorFilter.mode(
