@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:vibration/vibration.dart';
 import 'dart:async';
 // import '../barrel.dart';
@@ -28,11 +27,8 @@ class NavigationController extends StatefulWidget {
 class NavigationControllerState extends State<NavigationController>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late int _currentIndex;
-  bool _showNavBar = true;
   bool _isSOSActive = false;
   late Size size;
-  late PageController _pageController;
-  final List<bool> _loadedTabs = List.generate(5, (index) => false);
 
   int get currentIndex => _currentIndex;
 
@@ -41,12 +37,14 @@ class NavigationControllerState extends State<NavigationController>
     super.initState();
     _currentIndex = widget.initialTab;
     WidgetsBinding.instance.addObserver(this);
-    _pageController = PageController(initialPage: widget.initialTab);
-    _loadedTabs[widget.initialTab] = true; // Mark initial tab as loaded
-    _hideSystemBars();
+  }
 
-    // Add navigation state listener
-    _pageController.addListener(_handlePageScroll);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _hideSystemBars();
+    }
   }
 
   void _hideSystemBars() {
@@ -64,52 +62,9 @@ class NavigationControllerState extends State<NavigationController>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      _hideSystemBars();
-    }
-  }
-
-  void _handlePageScroll() {
-    if (!_pageController.hasClients) return;
-
-    final page = _pageController.page;
-    if (page == null) return;
-
-    // Update navigation state based on scroll position
-    if (page % 1 == 0) {
-      _onPageChanged(page.toInt());
-    }
-  }
-
-  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _pageController.removeListener(_handlePageScroll);
-    _pageController.dispose();
-    // Restore system UI when disposing
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
     super.dispose();
-  }
-
-  void _onPageChanged(int index) {
-    if (_currentIndex != index) {
-      setState(() {
-        _currentIndex = index;
-        _showNavBar = index != 1; // Hide nav bar for SwipeScreen
-        _loadedTabs[index] = true; // Mark tab as loaded
-      });
-
-      // Ensure immersive mode is maintained
-      SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.immersiveSticky,
-        overlays: [],
-      );
-    }
   }
 
   @override
@@ -118,106 +73,54 @@ class NavigationControllerState extends State<NavigationController>
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarDividerColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        systemNavigationBarIconBrightness: Brightness.light,
-      ),
-      child: Scaffold(
-        backgroundColor: isDarkMode ? Colors.black : Colors.white,
-        body: Stack(
-          children: [
-            // Main content with PageView
-            PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              physics: const NeverScrollableScrollPhysics(), // Disable swipe
-              itemCount: _navigationItems.length,
-              itemBuilder: (context, index) {
-                return KeepAliveWidget(
-                  active: _loadedTabs[index],
-                  child: _navigationItems[index].builder(),
-                );
-              },
-            ),
+    // Calculate navigation bar dimensions
+    final navBarHeight = size.height * 0.075;
+    final navAreaHeight = navBarHeight + bottomPadding + size.height * 0.03;
 
-            // Navigation bar with SOS button
-            if (_showNavBar)
-              Positioned(
-                bottom: bottomPadding,
-                left: 0,
-                right: 0,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.topCenter,
-                  children: [
-                    // Main navigation bar
-                    Container(
-                      margin: EdgeInsets.symmetric(
-                        horizontal: size.width * 0.05,
-                        vertical: size.height * 0.015,
-                      ),
-                      height: size.height * 0.075,
-                      child: Stack(
-                        children: [
-                          // SVG Background
-                          Positioned.fill(
-                            child: SvgPicture.asset(
-                              'assets/app/nav.svg',
-                              fit: BoxFit.fill,
-                              colorFilter: ColorFilter.mode(
-                                isDarkMode
-                                    ? const Color(0xFF333333)
-                                    : const Color(0xFF333333),
-                                BlendMode.srcIn,
-                              ),
-                            ),
-                          ),
-                          // Icons Row
-                          Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildNavItem(0),
-                                _buildNavItem(1),
-                                _buildNavItem(2),
-                                _buildNavItem(3),
-                                _buildProfileItem(4),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Floating SOS buttonr
-                    Positioned(
-                      top: -(size.height * 0.02),
-                      child: _buildSOSButton(),
-                    ),
-                  ],
-                ),
+    // IMPORTANT: This widget is now suitable for being placed inside other widgets
+    return SizedBox(
+      height: navAreaHeight,
+      width: size.width,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          // Main navigation bar
+          Positioned(
+            bottom: bottomPadding,
+            left: 0,
+            right: 0,
+            child: Container(
+              margin: EdgeInsets.symmetric(
+                horizontal: size.width * 0.05,
+                vertical: size.height * 0.015,
               ),
-          ],
-        ),
+              height: navBarHeight,
+              decoration: BoxDecoration(
+                color:
+                    isDarkMode
+                        ? const Color(0xFF333333)
+                        : const Color(0xFF333333),
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(0),
+                  _buildNavItem(1),
+                  _buildNavItem(2),
+                  _buildNavItem(3),
+                  _buildProfileItem(4),
+                ],
+              ),
+            ),
+          ),
+
+          // Floating SOS button
+          Positioned(top: 0, child: _buildSOSButton()),
+        ],
       ),
     );
-  }
-
-  String getIconPath(int index) {
-    switch (index) {
-      case 0:
-        return 'assets/nav_bar/home.svg';
-      case 1:
-        return 'assets/nav_bar/swipe.svg';
-      case 3:
-        return 'assets/nav_bar/snips.svg';
-      default:
-        return 'assets/nav_bar/home.svg';
-    }
   }
 
   Widget _buildNavItem(int index) {
@@ -229,40 +132,45 @@ class NavigationControllerState extends State<NavigationController>
       return SizedBox(width: iconSize * 1.5);
     }
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: isSelected ? iconSize * 1.2 : iconSize,
-      height: isSelected ? iconSize * 1.2 : iconSize,
-      child: GestureDetector(
-        onTap: () => dummyNavigation(context, index),
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
+    return GestureDetector(
+      onTap: () => dummyNavigation(context, index),
+      behavior:
+          HitTestBehavior.opaque, // Important for reliable touch detection
+      child: Container(
+        width: isSelected ? iconSize * 1.2 : iconSize,
+        height: isSelected ? iconSize * 1.2 : iconSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color:
+              isDarkMode
+                  ? Colors.white.withAlpha(38)
+                  : Colors.white.withAlpha(26),
+        ),
+        child: Center(
+          child: Icon(
+            _getIconData(index),
+            size: iconSize * 0.55,
             color:
-                isDarkMode
-                    ? Colors.white.withAlpha(38)
-                    : const Color.fromARGB(255, 255, 255, 255).withAlpha(26),
-          ),
-          child: Center(
-            child: AnimatedScale(
-              duration: const Duration(milliseconds: 300),
-              scale: isSelected ? 1.1 : 1.0,
-              child: SvgPicture.asset(
-                getIconPath(index),
-                width: iconSize * 0.55,
-                height: iconSize * 0.55,
-                colorFilter: ColorFilter.mode(
-                  isSelected
-                      ? Colors.green
-                      : (isDarkMode ? Colors.white : Colors.black),
-                  BlendMode.srcIn,
-                ),
-              ),
-            ),
+                isSelected
+                    ? Colors.green
+                    : (isDarkMode ? Colors.white : Colors.white),
           ),
         ),
       ),
     );
+  }
+
+  IconData _getIconData(int index) {
+    switch (index) {
+      case 0:
+        return Icons.home;
+      case 1:
+        return Icons.favorite;
+      case 3:
+        return Icons.video_library;
+      default:
+        return Icons.question_mark;
+    }
   }
 
   Widget _buildProfileItem(int index) {
@@ -270,15 +178,8 @@ class NavigationControllerState extends State<NavigationController>
     final iconSize = size.width * 0.1;
 
     return GestureDetector(
-      onTap: () {
-        if (_currentIndex != index) {
-          _pageController.animateToPage(
-            index,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-          );
-        }
-      },
+      onTap: () => dummyNavigation(context, index),
+      behavior: HitTestBehavior.opaque,
       child: Container(
         width: iconSize,
         height: iconSize,
@@ -288,24 +189,23 @@ class NavigationControllerState extends State<NavigationController>
             color: isSelected ? Colors.green : Colors.transparent,
             width: 2,
           ),
-          image: const DecorationImage(
-            image: AssetImage('assets/tempImages/users/user1.jpg'),
-            fit: BoxFit.cover,
-          ),
+          color: Colors.grey[800],
         ),
+        child: const Icon(Icons.person, color: Colors.white, size: 20),
       ),
     );
   }
 
   Widget _buildSOSButton() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final buttonSize = _isSOSActive ? size.width * 0.15 : size.width * 0.13;
 
     return GestureDetector(
       onTap: _handleSOSPress,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: _isSOSActive ? size.width * 0.2 : size.width * 0.17,
-        height: _isSOSActive ? size.width * 0.2 : size.width * 0.17,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: buttonSize,
+        height: buttonSize,
         decoration: BoxDecoration(
           color:
               isDarkMode
@@ -321,45 +221,33 @@ class NavigationControllerState extends State<NavigationController>
             ),
           ],
         ),
-        child:
-            _isSOSActive
-                ? ClipRRect(
-                  borderRadius: BorderRadius.circular(size.width * 0.17),
-                  child: OverflowBox(
-                    maxWidth: size.width * 0.3,
-                    maxHeight: size.width * 0.3,
-                    child: Image.asset(
-                      'assets/nav_bar/sos.gif',
-                      fit: BoxFit.cover,
-                      width: size.width * 0.3,
-                      height: size.width * 0.3,
-                    ),
-                  ),
-                )
-                : Center(
-                  child: SvgPicture.asset(
-                    'assets/nav_bar/sos.svg',
-                    width: size.width * 0.13,
-                    height: size.width * 0.13,
-                    colorFilter: ColorFilter.mode(
-                      isDarkMode ? Colors.white : Colors.black,
-                      BlendMode.srcIn,
-                    ),
-                  ),
+        child: Center(
+          child: Container(
+            width: buttonSize * 0.8,
+            height: buttonSize * 0.8,
+            decoration: BoxDecoration(
+              color: _isSOSActive ? Colors.red : Colors.red.withOpacity(0.8),
+              shape: BoxShape.circle,
+            ),
+            child: const Center(
+              child: Text(
+                'SOS',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  final List<({String label, Widget Function() builder})> _navigationItems = [
-    (label: 'Home', builder: () => const Center(child: Text('Home'))),
-    (label: 'Swipe', builder: () => const Center(child: Text('Swipe'))),
-    (label: 'SOS', builder: () => const Center(child: Text('SOS'))),
-    (label: 'Snips', builder: () => const Center(child: Text('Snips'))),
-    (label: 'Profile', builder: () => const Center(child: Text('Profile'))),
-  ];
-
   Future<void> _handleSOSPress() async {
+    HapticFeedback.heavyImpact();
+
     if (_isSOSActive) {
       // If SOS is currently active, stop everything immediately
       Vibration.cancel();
@@ -368,59 +256,50 @@ class NavigationControllerState extends State<NavigationController>
       // Start new SOS sequence
       setState(() => _isSOSActive = true);
 
-      Future.delayed(const Duration(milliseconds: 500), () async {
-        while (_isSOSActive) {
-          // S (... = 3 short vibrations)
-          for (var i = 0; i < 3; i++) {
-            if (!_isSOSActive) return; // Check before each vibration
-            await Vibration.vibrate(duration: 200, amplitude: 255);
-            await Future.delayed(const Duration(milliseconds: 200));
-          }
-          if (!_isSOSActive) return;
-          await Future.delayed(const Duration(milliseconds: 400));
+      // Use a safer approach for long-running operations
+      unawaited(_runSOSSequence());
+    }
+  }
 
-          // O (--- = 3 long vibrations)
-          for (var i = 0; i < 3; i++) {
-            if (!_isSOSActive) return; // Check before each vibration
-            await Vibration.vibrate(duration: 500, amplitude: 255);
-            await Future.delayed(const Duration(milliseconds: 200));
-          }
-          if (!_isSOSActive) return;
-          await Future.delayed(const Duration(milliseconds: 400));
+  // Separate method to handle the SOS vibration sequence
+  Future<void> _runSOSSequence() async {
+    while (_isSOSActive) {
+      // S (... = 3 short vibrations)
+      for (var i = 0; i < 3; i++) {
+        if (!_isSOSActive) return; // Check before each vibration
+        await Vibration.vibrate(duration: 200, amplitude: 255);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+      if (!_isSOSActive) return;
+      await Future.delayed(const Duration(milliseconds: 400));
 
-          // S (... = 3 short vibrations)
-          for (var i = 0; i < 3; i++) {
-            if (!_isSOSActive) return; // Check before each vibration
-            await Vibration.vibrate(duration: 200, amplitude: 255);
-            await Future.delayed(const Duration(milliseconds: 200));
-          }
+      // O (--- = 3 long vibrations)
+      for (var i = 0; i < 3; i++) {
+        if (!_isSOSActive) return; // Check before each vibration
+        await Vibration.vibrate(duration: 500, amplitude: 255);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+      if (!_isSOSActive) return;
+      await Future.delayed(const Duration(milliseconds: 400));
 
-          if (!_isSOSActive) return;
-          await Future.delayed(const Duration(seconds: 1));
-        }
-      });
+      // S (... = 3 short vibrations)
+      for (var i = 0; i < 3; i++) {
+        if (!_isSOSActive) return; // Check before each vibration
+        await Vibration.vibrate(duration: 200, amplitude: 255);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
+      if (!_isSOSActive) return;
+      await Future.delayed(const Duration(seconds: 1));
     }
   }
 }
 
-class KeepAliveWidget extends StatefulWidget {
-  final bool active;
-  final Widget child;
-
-  const KeepAliveWidget({required this.active, required this.child, super.key});
-
-  @override
-  State<KeepAliveWidget> createState() => _KeepAliveWidgetState();
-}
-
-class _KeepAliveWidgetState extends State<KeepAliveWidget>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => widget.active;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.active ? widget.child : const SizedBox.shrink();
-  }
+// Helper function to handle unawaited futures
+void unawaited(Future<void> future) {
+  // This ignores the future but catches any errors
+  future.catchError((error, stackTrace) {
+    debugPrint('Error in unawaited future: $error');
+    debugPrint('Stack trace: $stackTrace');
+  });
 }

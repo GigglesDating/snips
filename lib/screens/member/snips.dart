@@ -74,6 +74,22 @@ class _SnipsScreenState extends State<SnipsScreen>
     _monitorMemoryUsage();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-check if the current video should be playing
+    if (_snips.isNotEmpty &&
+        _currentIndex >= 0 &&
+        _currentIndex < _snips.length) {
+      // This will ensure the current visible video is playing
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {}); // Trigger rebuild
+        }
+      });
+    }
+  }
+
   Future<void> _initializeSnips() async {
     try {
       // Get UUID from SharedPreferences
@@ -343,6 +359,7 @@ class _SnipsScreenState extends State<SnipsScreen>
                 return SnipCard(
                   snip: snip,
                   isVisible: _currentIndex == index,
+                  autoPlay: _currentIndex == index, // Ensure autoPlay is set
                   onVideoPause:
                       () => _handleVideoStateChange(VideoPlaybackState.paused),
                   onScrollBack: _handleScrollBack,

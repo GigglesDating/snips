@@ -162,7 +162,12 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
         // Play if visible and autoPlay is true
         if (widget.isVisible && widget.autoPlay) {
           debugPrint('Auto-playing video...');
-          await _playVideo();
+          // Add a small delay to ensure controller is properly initialized
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              _playVideo();
+            }
+          });
         }
       } else {
         throw Exception('Failed to initialize video controller');
@@ -203,6 +208,7 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
 
     // Handle state changes
     final isPlaying = _controller!.value.isPlaying;
+    debugPrint('isPlaying 🥲 $isPlaying');
     if (isPlaying != _isPlaying) {
       setState(() => _isPlaying = isPlaying);
       widget.onVideoStateChange?.call(isPlaying);
@@ -215,10 +221,20 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
 
   Future<void> _playVideo() async {
     if (_controller == null) return;
+
     try {
-      await _controller!.play();
+      // Make sure to set volume
+      await _controller!.setVolume(_isMuted ? 0.0 : 1.0);
+
+      // Force state update before play
       setState(() => _isPlaying = true);
+
+      // Play the video
+      await _controller!.play();
+
+      // Update UI visibility
       _updateUIVisibility(false);
+
       debugPrint('Video playback started');
     } catch (e) {
       debugPrint('Error playing video: $e');
@@ -282,6 +298,7 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
     final cardHeight = widget.customHeight ?? screenHeight;
 
     if (_controller == null) {
+      debugPrint('controller is null 🥲');
       return _buildLoadingView();
     }
 
@@ -641,6 +658,9 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
         );
       },
       child: Column(
+        mainAxisSize:
+            MainAxisSize
+                .min, // Add this to make Column shrink-wrap its children
         children: [
           // Profile Picture
           GestureDetector(
@@ -664,40 +684,36 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
             ),
           ),
           SizedBox(height: MediaQuery.of(context).size.width * 0.03),
-          // Description
-          Expanded(
+          // Description - Replace Expanded with a Container that has a fixed or constrained height
+          Container(
+            constraints: BoxConstraints(
+              maxHeight:
+                  screenHeight * 0.3, // Use a percentage of screen height
+            ),
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() => _showDescription = true);
               },
-              child: Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.3,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.snip.authorProfile.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.snip.authorProfile.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.snip.description,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                        ),
-                        maxLines: _showDescription ? null : 3,
-                        overflow: _showDescription ? null : TextOverflow.fade,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.snip.description,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      maxLines: _showDescription ? null : 3,
+                      overflow: _showDescription ? null : TextOverflow.fade,
+                    ),
+                  ],
                 ),
               ),
             ),
