@@ -351,6 +351,7 @@ class _SnipsScreenState extends State<SnipsScreen>
                 if (index == _snips.length - 2 &&
                     _hasMore &&
                     _nextPage != null) {
+                  debugPrint('reached last second video fetching new snips');
                   _loadMoreSnips();
                 }
               },
