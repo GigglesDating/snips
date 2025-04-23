@@ -74,6 +74,22 @@ class _SnipsScreenState extends State<SnipsScreen>
     _monitorMemoryUsage();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-check if the current video should be playing
+    if (_snips.isNotEmpty &&
+        _currentIndex >= 0 &&
+        _currentIndex < _snips.length) {
+      // This will ensure the current visible video is playing
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {}); // Trigger rebuild
+        }
+      });
+    }
+  }
+
   Future<void> _initializeSnips() async {
     try {
       // Get UUID from SharedPreferences
@@ -329,11 +345,13 @@ class _SnipsScreenState extends State<SnipsScreen>
               controller: _pageController,
               scrollDirection: Axis.vertical,
               onPageChanged: (index) {
+                debugPrint('changed page');
                 setState(() => _currentIndex = index);
                 _preloadVideo(index);
                 if (index == _snips.length - 2 &&
                     _hasMore &&
                     _nextPage != null) {
+                  debugPrint('reached last second video fetching new snips');
                   _loadMoreSnips();
                 }
               },
@@ -343,6 +361,7 @@ class _SnipsScreenState extends State<SnipsScreen>
                 return SnipCard(
                   snip: snip,
                   isVisible: _currentIndex == index,
+                  autoPlay: _currentIndex == index, // Ensure autoPlay is set
                   onVideoPause:
                       () => _handleVideoStateChange(VideoPlaybackState.paused),
                   onScrollBack: _handleScrollBack,
@@ -379,7 +398,7 @@ class _SnipsScreenState extends State<SnipsScreen>
                       ),
                     ),
                     child: SvgPicture.asset(
-                      'assets/icons/snip/snip_upload.svg',
+                      'assets/snip_upload.svg',
                       width: screenWidth * 0.06,
                       height: screenWidth * 0.06,
                       colorFilter: const ColorFilter.mode(
@@ -401,13 +420,6 @@ class _SnipsScreenState extends State<SnipsScreen>
               right: 0,
               child: const NavigationController(),
             ),
-
-          // Loading Indicator
-          Positioned(
-            top: screenHeight * 0.4,
-            left: screenWidth * 0.4,
-            child: _buildLoadingIndicator(),
-          ),
 
           // Network Indicator
           Positioned(

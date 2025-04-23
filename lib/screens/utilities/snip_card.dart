@@ -4,7 +4,6 @@ import 'package:video_player/video_player.dart';
 import 'dart:async';
 import 'dart:ui';
 import '../barrel.dart';
-// import '../../models/video_quality.dart';
 
 class SnipCard extends StatefulWidget {
   final SnipModel snip;
@@ -74,6 +73,9 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   bool _isLiked = false;
   bool _showHeart = false;
 
+  // Gesture control
+  bool _isGestureHandlingEnabled = true;
+
   String? _error;
 
   @override
@@ -81,6 +83,29 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
     super.initState();
     _setupAnimations();
     _initializeVideo();
+  }
+
+  @override
+  void didUpdateWidget(SnipCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If visibility changes, update video playback state
+    if (widget.isVisible != oldWidget.isVisible) {
+      if (widget.isVisible) {
+        if (_controller == null) {
+          // Only initialize if controller doesn't exist
+          _initializeVideo();
+        } else if (widget.autoPlay && !_isPlaying) {
+          // If controller exists but video isn't playing, play it
+          _playVideo();
+        }
+      } else {
+        if (_isPlaying && _controller != null) {
+          // Pause video when not visible
+          _pauseVideo();
+        }
+      }
+    }
   }
 
   void _setupAnimations() {
@@ -162,7 +187,12 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
         // Play if visible and autoPlay is true
         if (widget.isVisible && widget.autoPlay) {
           debugPrint('Auto-playing video...');
-          await _playVideo();
+          // Add a small delay to ensure controller is properly initialized
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              _playVideo();
+            }
+          });
         }
       } else {
         throw Exception('Failed to initialize video controller');
@@ -215,10 +245,20 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
 
   Future<void> _playVideo() async {
     if (_controller == null) return;
+
     try {
-      await _controller!.play();
+      // Make sure to set volume
+      await _controller!.setVolume(_isMuted ? 0.0 : 1.0);
+
+      // Force state update before play
       setState(() => _isPlaying = true);
+
+      // Play the video
+      await _controller!.play();
+
+      // Update UI visibility
       _updateUIVisibility(false);
+
       debugPrint('Video playback started');
     } catch (e) {
       debugPrint('Error playing video: $e');
@@ -282,9 +322,11 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
     final cardHeight = widget.customHeight ?? screenHeight;
 
     if (_controller == null) {
+      debugPrint('controller is null');
       return _buildLoadingView();
     }
 
+    // Note: No GestureDetector at this level
     return Container(
       width: cardWidth,
       height: cardHeight,
@@ -293,61 +335,67 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
         top: widget.isProfileView ? 0 : screenHeight * 0.02,
         right: widget.isProfileView ? screenWidth * 0.05 : 0,
       ),
-      child: GestureDetector(
-        onTap: widget.isProfileView ? widget.onSnipTap : _handleTap,
-        onDoubleTap: widget.isProfileView ? null : _handleDoubleTap,
-        onLongPress: widget.isProfileView ? null : _handleLongPress,
-        child: Stack(
-          children: [
-            // Video Player
-            _buildVideoPlayer(),
+      child: Stack(
+        children: [
+          // Video Player (No gestures here)
+          _buildVideoPlayer(),
 
-            // Stats Strip (Top)
-            if (_showStats && !widget.isProfileView)
-              Positioned(
-                top: cardWidth * 0.04,
-                left: cardWidth * 0.06,
-                child: _buildStatsStrip(),
+          // Transparent gesture layer
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent, // Important!
+              onTap: widget.isProfileView ? widget.onSnipTap : _handleTap,
+              onDoubleTap: widget.isProfileView ? null : _handleDoubleTap,
+              onLongPress: widget.isProfileView ? null : _handleLongPress,
+              // We explicitly don't handle vertical drags to allow PageView scrolling
+            ),
+          ),
+
+          // Stats Strip (Top)
+          if (_showStats && !widget.isProfileView)
+            Positioned(
+              top: cardWidth * 0.04,
+              left: cardWidth * 0.06,
+              child: _buildStatsStrip(),
+            ),
+
+          // More Options Button (Top Right)
+          if (!widget.isProfileView)
+            Positioned(
+              top: cardWidth * 0.04,
+              right: cardWidth * 0.06,
+              child: _buildMoreOptionsButton(),
+            ),
+
+          // Action Bar (Right)
+          if (!widget.isProfileView)
+            Positioned(
+              right: cardWidth * 0.04,
+              bottom: bottomPadding + navBarHeight,
+              child: _buildActionBar(),
+            ),
+
+          // Profile Info and Description (Bottom)
+          if (_showProfileInfo && !widget.isProfileView) _buildProfileInfo(),
+
+          // Heart Animation (Center)
+          if (_showHeart && !widget.isProfileView)
+            Positioned.fill(child: _buildHeartAnimation()),
+
+          // Progress Bar (Bottom)
+          if (!widget.isProfileView)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onHorizontalDragStart: _onProgressDragStart,
+                onHorizontalDragUpdate: _onProgressDragUpdate,
+                onHorizontalDragEnd: _onProgressDragEnd,
+                child: _buildProgressBar(),
               ),
-
-            // More Options Button (Top Right)
-            if (!widget.isProfileView)
-              Positioned(
-                top: cardWidth * 0.04,
-                right: cardWidth * 0.06,
-                child: _buildMoreOptionsButton(),
-              ),
-
-            // Action Bar (Right)
-            if (!widget.isProfileView)
-              Positioned(
-                right: cardWidth * 0.04,
-                bottom: bottomPadding + navBarHeight,
-                child: _buildActionBar(),
-              ),
-
-            // Profile Info and Description (Bottom)
-            if (_showProfileInfo && !widget.isProfileView) _buildProfileInfo(),
-
-            // Heart Animation (Center)
-            if (_showHeart && !widget.isProfileView)
-              Positioned.fill(child: _buildHeartAnimation()),
-
-            // Progress Bar (Bottom)
-            if (!widget.isProfileView)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: GestureDetector(
-                  onHorizontalDragStart: _onProgressDragStart,
-                  onHorizontalDragUpdate: _onProgressDragUpdate,
-                  onHorizontalDragEnd: _onProgressDragEnd,
-                  child: _buildProgressBar(),
-                ),
-              ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -361,18 +409,13 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
       return _buildErrorView();
     }
 
+    // No GestureDetector here - this is important!
     return Stack(
       fit: StackFit.expand,
       children: [
-        GestureDetector(
-          onTap: _handleTap,
-          onDoubleTap: _handleDoubleTap,
-          onLongPress: _handleLongPress,
-          onVerticalDragUpdate: handleScroll,
-          child: AspectRatio(
-            aspectRatio: _controller!.value.aspectRatio,
-            child: VideoPlayer(_controller!),
-          ),
+        AspectRatio(
+          aspectRatio: _controller!.value.aspectRatio,
+          child: VideoPlayer(_controller!),
         ),
         if (_isBuffering) _buildLoadingView(),
         if (_isMuted) _buildMuteIndicator(),
@@ -506,6 +549,8 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   }
 
   void _handleTap() {
+    if (!_isGestureHandlingEnabled) return;
+
     HapticFeedback.lightImpact();
     setState(() => _isMuted = !_isMuted);
 
@@ -521,6 +566,8 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   }
 
   void _handleDoubleTap() {
+    if (!_isGestureHandlingEnabled) return;
+
     HapticFeedback.lightImpact();
     setState(() {
       _isLiked = !_isLiked;
@@ -539,6 +586,7 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   }
 
   void _handleLongPress() {
+    if (!_isGestureHandlingEnabled) return;
     _pauseVideo();
   }
 
@@ -641,6 +689,9 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
         );
       },
       child: Column(
+        mainAxisSize:
+            MainAxisSize
+                .min, // Add this to make Column shrink-wrap its children
         children: [
           // Profile Picture
           GestureDetector(
@@ -664,40 +715,36 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
             ),
           ),
           SizedBox(height: MediaQuery.of(context).size.width * 0.03),
-          // Description
-          Expanded(
+          // Description - Replace Expanded with a Container that has a fixed or constrained height
+          Container(
+            constraints: BoxConstraints(
+              maxHeight:
+                  screenHeight * 0.3, // Use a percentage of screen height
+            ),
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() => _showDescription = true);
               },
-              child: Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.3,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.snip.authorProfile.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.snip.authorProfile.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.snip.description,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                        ),
-                        maxLines: _showDescription ? null : 3,
-                        overflow: _showDescription ? null : TextOverflow.fade,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.snip.description,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      maxLines: _showDescription ? null : 3,
+                      overflow: _showDescription ? null : TextOverflow.fade,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -725,6 +772,9 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   }
 
   void _showCommentsSheet() {
+    // Temporarily disable gesture handling during sheet display
+    setState(() => _isGestureHandlingEnabled = false);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -739,10 +789,18 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
             screenHeight: MediaQuery.of(context).size.height,
             screenWidth: MediaQuery.of(context).size.width,
           ),
-    );
+    ).then((_) {
+      // Re-enable gesture handling when sheet is dismissed
+      if (mounted) {
+        setState(() => _isGestureHandlingEnabled = true);
+      }
+    });
   }
 
   void _showShareSheet() {
+    // Temporarily disable gesture handling during sheet display
+    setState(() => _isGestureHandlingEnabled = false);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -753,10 +811,18 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
             post: widget.snip.toJson(),
             screenWidth: MediaQuery.of(context).size.width,
           ),
-    );
+    ).then((_) {
+      // Re-enable gesture handling when sheet is dismissed
+      if (mounted) {
+        setState(() => _isGestureHandlingEnabled = true);
+      }
+    });
   }
 
   void _showReportSheet() {
+    // Temporarily disable gesture handling during sheet display
+    setState(() => _isGestureHandlingEnabled = false);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -767,7 +833,12 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
             reportType: ReportType.content,
             contentType: 'snip',
           ),
-    );
+    ).then((_) {
+      // Re-enable gesture handling when sheet is dismissed
+      if (mounted) {
+        setState(() => _isGestureHandlingEnabled = true);
+      }
+    });
   }
 
   String _getTimeAgo(DateTime timestamp) {
@@ -821,13 +892,8 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
     }
   }
 
-  // Update scroll direction handling
-  void handleScroll(DragUpdateDetails details) {
-    if (details.primaryDelta != null && details.primaryDelta! > 0) {
-      // Scrolling down (going to previous video)
-      widget.onScrollBack?.call();
-    }
-  }
+  // This method has been removed to let PageView handle vertical gestures directly
+  // handleScroll has been intentionally removed to fix the main issue
 
   Widget _buildMuteIndicator() {
     return Positioned(
