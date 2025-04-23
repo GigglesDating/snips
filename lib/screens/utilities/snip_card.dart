@@ -88,14 +88,20 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(SnipCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     // If visibility changes, update video playback state
     if (widget.isVisible != oldWidget.isVisible) {
       if (widget.isVisible) {
-        if (widget.autoPlay && !_isPlaying && _controller != null) {
+        if (_controller == null) {
+          // Only initialize if controller doesn't exist
+          _initializeVideo();
+        } else if (widget.autoPlay && !_isPlaying) {
+          // If controller exists but video isn't playing, play it
           _playVideo();
         }
       } else {
         if (_isPlaying && _controller != null) {
+          // Pause video when not visible
           _pauseVideo();
         }
       }
@@ -320,7 +326,7 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
       return _buildLoadingView();
     }
 
-    // Important: No GestureDetector here at this level
+    // Note: No GestureDetector at this level
     return Container(
       width: cardWidth,
       height: cardHeight,
@@ -334,16 +340,14 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
           // Video Player (No gestures here)
           _buildVideoPlayer(),
 
-          // Overlay for tap/double tap gestures
+          // Transparent gesture layer
           Positioned.fill(
             child: GestureDetector(
-              behavior:
-                  HitTestBehavior
-                      .translucent, // Important for proper event handling
+              behavior: HitTestBehavior.translucent, // Important!
               onTap: widget.isProfileView ? widget.onSnipTap : _handleTap,
               onDoubleTap: widget.isProfileView ? null : _handleDoubleTap,
               onLongPress: widget.isProfileView ? null : _handleLongPress,
-              // We explicitly avoid handling vertical drags here to allow PageView to work
+              // We explicitly don't handle vertical drags to allow PageView scrolling
             ),
           ),
 

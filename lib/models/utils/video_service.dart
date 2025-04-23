@@ -3,6 +3,7 @@ import 'package:video_player/video_player.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/rendering.dart';
+import 'dart:collection';
 
 // Import the models
 import 'video_quality.dart';
@@ -21,13 +22,22 @@ class VideoService {
   static final Map<String, int> _loadTimes = {};
   static final Map<String, int> _loadTimeCounts = {};
 
+  // LRU cache mechanism for controller management
+  static final int _maxCachedControllers =
+      8; // Maximum number of controllers to keep in memory
+  static final Queue<String> _controllerLRUQueue = Queue<String>();
+  static final Map<String, int> _controllerUsageCount =
+      {}; // Track how many widgets are using each controller
+
+  // State tracking for initialization
+  static final Map<String, bool> _pendingInitialization = {};
+  static final Map<String, List<Completer<VideoPlayerController>>>
+  _initializationWaiters = {};
+
   // Constants
-  // static const Duration _qualityCheckInterval = Duration(seconds: 10);
   static const Duration _cleanupInterval = Duration(minutes: 30);
-  // static const Duration _bufferTimeout = Duration(seconds: 5);
-  // static const int _maxBufferCount = 3;
-  // static const int _maxRetries = 3;
   static const int _maxRetryAttempts = 3;
+  static const Duration _initializationTimeout = Duration(seconds: 10);
 
   // Initialize periodic cleanup
   static void initialize() {
@@ -77,15 +87,25 @@ class VideoService {
 
   // Pre-buffer next videos
   static Future<void> _preBufferNextVideos(List<String> urls) async {
+    int preloadCount = 0;
+    final maxToPreload = 2; // Only preload a maximum of 2 videos at once
+
     for (final url in urls) {
+      // Skip if we've already preloaded enough or if controller exists
+      if (preloadCount >= maxToPreload || _controllers.containsKey(url)) {
+        continue;
+      }
+
       try {
         debugPrint('🎥 VideoService: Pre-buffering video: $url');
-        final controller = VideoPlayerController.networkUrl(
-          Uri.parse(url),
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
-        await controller.initialize();
-        await controller.dispose();
+
+        // Just initialize the controller but don't play it
+        // We'll keep this controller in the cache
+        await _createControllerWithFallback(url);
+        preloadCount++;
+
+        // Update LRU queue
+        _updateLRUQueue(url);
       } catch (e) {
         debugPrint('🎥 VideoService: Failed to pre-buffer video: $url');
         debugPrint('🎥 VideoService: Error: $e');
@@ -93,7 +113,54 @@ class VideoService {
     }
   }
 
-  // Initialize video controller with quality management
+  // Update LRU queue for controller management
+  static void _updateLRUQueue(String url) {
+    if (!_controllers.containsKey(url)) return;
+
+    // Remove from current position (if exists)
+    _controllerLRUQueue.removeWhere((element) => element == url);
+
+    // Add to front (most recently used)
+    _controllerLRUQueue.addFirst(url);
+
+    // Update last used timestamp
+    _lastUsed[url] = DateTime.now();
+
+    // Increment usage count
+    _controllerUsageCount[url] = (_controllerUsageCount[url] ?? 0) + 1;
+
+    // Check if we need to clean up controllers
+    _cleanupLeastUsedControllers();
+  }
+
+  // Clean up least recently used controllers if we have too many
+  static void _cleanupLeastUsedControllers() {
+    if (_controllers.length <= _maxCachedControllers) return;
+
+    // Find least used controllers to remove
+    while (_controllers.length > _maxCachedControllers &&
+        _controllerLRUQueue.isNotEmpty) {
+      final lruUrl = _controllerLRUQueue.last;
+      // Only remove if not in use
+      if ((_controllerUsageCount[lruUrl] ?? 0) <= 0) {
+        _controllerLRUQueue.removeLast();
+        final controller = _controllers.remove(lruUrl);
+        if (controller != null) {
+          debugPrint(
+            '🎥 VideoService: Disposing least recently used controller: $lruUrl',
+          );
+          controller.dispose();
+          _cleanupController(lruUrl);
+        }
+      } else {
+        // Can't remove this one, move to next
+        _controllerLRUQueue.removeLast();
+        _controllerLRUQueue.addFirst(lruUrl);
+      }
+    }
+  }
+
+  // Initialize video controller with quality management and caching
   static Future<VideoPlayerController?> initializeController({
     required String url,
     required String snipId,
@@ -111,6 +178,31 @@ class VideoService {
       throw Exception('Video URL cannot be empty');
     }
 
+    // Check if we already have a cached controller
+    if (useCache && _controllers.containsKey(url)) {
+      final controller = _controllers[url]!;
+
+      // If already initialized, return it
+      if (controller.value.isInitialized) {
+        debugPrint('🎥 VideoService: Using cached controller');
+        _updateLRUQueue(url);
+        return controller;
+      }
+
+      // If initialization is pending, wait for it
+      if (_pendingInitialization[url] == true) {
+        debugPrint('🎥 VideoService: Waiting for pending initialization');
+        final completer = Completer<VideoPlayerController>();
+        _initializationWaiters[url] ??= [];
+        _initializationWaiters[url]!.add(completer);
+        return completer.future;
+      }
+    }
+
+    // Set initialization as pending to prevent duplicate initializations
+    _pendingInitialization[url] = true;
+    _initializationWaiters[url] ??= [];
+
     // Try to parse the URL first to catch basic formatting issues
     try {
       final uri = Uri.parse(url);
@@ -124,6 +216,11 @@ class VideoService {
       }
     } catch (e) {
       debugPrint('🎥 VideoService: Basic URL validation failed: $e');
+
+      // Clean up pending state
+      _pendingInitialization.remove(url);
+      _initializationWaiters.remove(url);
+
       throw Exception('Invalid URL format: $e');
     }
 
@@ -142,58 +239,61 @@ class VideoService {
         _validateS3Url(url);
         debugPrint('🎥 VideoService: URL validation passed');
 
-        // Try direct URL first
+        // Try to create a controller
         debugPrint('🎥 VideoService: Attempting direct URL initialization...');
-        controller = VideoPlayerController.networkUrl(
-          Uri.parse(url),
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
+        controller = await _createControllerWithFallback(url);
 
-        // Set up error listener
-        controller.addListener(() {
-          if (controller?.value.hasError ?? false) {
-            debugPrint(
-              '🎥 VideoService: Controller error: ${controller?.value.errorDescription}',
-            );
-          }
-        });
-
-        // Initialize with timeout
-        debugPrint('🎥 VideoService: Initializing controller...');
-        await controller.initialize().timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            debugPrint('🎥 VideoService: Initialization timed out');
-            throw TimeoutException('Video initialization timed out');
-          },
-        );
-        debugPrint('🎥 VideoService: Controller initialized successfully');
-
-        // If we get here, initialization was successful
-        final loadTime = DateTime.now().difference(startTime).inMilliseconds;
-        debugPrint('🎥 VideoService: Total initialization time: ${loadTime}ms');
-
-        // Update analytics
-        _updateAverageLoadTime(loadTime);
-        _trackVideoEvent(snipId, 'initialization_success', {
-          'attempt': attempt,
-          'load_time': loadTime,
-          'quality': quality ?? 'auto',
-        });
-
-        // Configure controller
-        controller.setLooping(true);
-        controller.setVolume(1.0);
-
-        // Pre-buffer next videos if available
-        if (preBufferUrls != null && preBufferUrls.isNotEmpty) {
-          debugPrint(
-            '🎥 VideoService: Pre-buffering ${preBufferUrls.length} videos',
+        if (controller != null) {
+          // Initialize with timeout
+          debugPrint('🎥 VideoService: Initializing controller...');
+          await controller.initialize().timeout(
+            _initializationTimeout,
+            onTimeout: () {
+              debugPrint('🎥 VideoService: Initialization timed out');
+              throw TimeoutException('Video initialization timed out');
+            },
           );
-          _preBufferNextVideos(preBufferUrls);
-        }
 
-        return controller;
+          debugPrint('🎥 VideoService: Controller initialized successfully');
+
+          // If we get here, initialization was successful
+          final loadTime = DateTime.now().difference(startTime).inMilliseconds;
+          debugPrint(
+            '🎥 VideoService: Total initialization time: ${loadTime}ms',
+          );
+
+          // Update analytics
+          _updateAverageLoadTime(loadTime);
+          _trackVideoEvent(snipId, 'initialization_success', {
+            'attempt': attempt,
+            'load_time': loadTime,
+            'quality': quality ?? 'auto',
+          });
+
+          // Configure controller
+          controller.setLooping(true);
+
+          // Store in controller cache
+          _controllers[url] = controller;
+          _updateLRUQueue(url);
+
+          // Pre-buffer next videos if available
+          if (preBufferUrls != null && preBufferUrls.isNotEmpty) {
+            debugPrint(
+              '🎥 VideoService: Pre-buffering ${preBufferUrls.length} videos',
+            );
+            _preBufferNextVideos(preBufferUrls);
+          }
+
+          // Complete all waiters
+          for (final completer in _initializationWaiters[url] ?? []) {
+            if (!completer.isCompleted) completer.complete(controller);
+          }
+          _initializationWaiters.remove(url);
+          _pendingInitialization.remove(url);
+
+          return controller;
+        }
       } catch (e, stackTrace) {
         lastError = e is Exception ? e : Exception(e.toString());
         debugPrint('🎥 VideoService: Error on attempt $attempt: $e');
@@ -216,6 +316,14 @@ class VideoService {
         // If this is the last attempt, throw the error
         if (attempt >= _maxRetryAttempts) {
           debugPrint('🎥 VideoService: All attempts failed');
+
+          // Complete all waiters with error
+          for (final completer in _initializationWaiters[url] ?? []) {
+            if (!completer.isCompleted) completer.completeError(lastError!);
+          }
+          _initializationWaiters.remove(url);
+          _pendingInitialization.remove(url);
+
           throw lastError;
         }
 
@@ -228,7 +336,16 @@ class VideoService {
       }
     }
 
-    throw lastError ?? Exception('Failed to initialize video controller');
+    // Complete all waiters with error
+    final error =
+        lastError ?? Exception('Failed to initialize video controller');
+    for (final completer in _initializationWaiters[url] ?? []) {
+      if (!completer.isCompleted) completer.completeError(error);
+    }
+    _initializationWaiters.remove(url);
+    _pendingInitialization.remove(url);
+
+    throw error;
   }
 
   static void _validateS3Url(String url) {
@@ -269,19 +386,6 @@ class VideoService {
         debugPrint(
           '🎥 VideoService: S3 URL parameters - Expires: $expiresIn, Date: $dateStr',
         );
-
-        final signedDate = DateTime.parse(dateStr);
-        final expiryDate = signedDate.add(Duration(seconds: expiresIn));
-
-        // Check if the URL has expired
-        if (DateTime.now().isAfter(expiryDate)) {
-          throw Exception('Video URL has expired');
-        }
-
-        // Check if the URL is dated too far in the future (more than 7 days)
-        if (signedDate.difference(DateTime.now()).inDays > 7) {
-          throw Exception('Video URL has an invalid future date');
-        }
       }
     }
 
@@ -355,7 +459,12 @@ class VideoService {
       _controllers[videoUrl] = newController;
       _currentQualities[videoUrl] = newQuality;
 
-      oldController?.dispose();
+      // Decrease usage count for old controller
+      _controllerUsageCount[videoUrl] =
+          (_controllerUsageCount[videoUrl] ?? 1) - 1;
+
+      // Mark controller for later disposal but don't dispose immediately
+      _cleanupLeastUsedControllers();
 
       debugPrint('Switched to quality: $newQuality');
     } catch (e) {
@@ -363,24 +472,30 @@ class VideoService {
     }
   }
 
-  static void _updateLastUsed(String videoUrl) {
-    _lastUsed[videoUrl] = DateTime.now();
-  }
-
   static void _startPeriodicCleanup() {
     Timer.periodic(_cleanupInterval, (timer) {
       final now = DateTime.now();
-      _controllers.removeWhere((url, controller) {
-        final lastUsed = _lastUsed[url];
-        if (lastUsed == null) return false;
 
-        if (now.difference(lastUsed) > _cleanupInterval) {
+      // Find controllers that haven't been used in a while
+      final controllersToRemove = <String>[];
+
+      _lastUsed.forEach((url, lastUsed) {
+        if (now.difference(lastUsed) > _cleanupInterval &&
+            (_controllerUsageCount[url] ?? 0) <= 0) {
+          controllersToRemove.add(url);
+        }
+      });
+
+      // Dispose controllers
+      for (final url in controllersToRemove) {
+        final controller = _controllers[url];
+        if (controller != null) {
+          debugPrint('🎥 VideoService: Cleaning up unused controller: $url');
           controller.dispose();
           _cleanupController(url);
-          return true;
+          _controllerLRUQueue.removeWhere((element) => element == url);
         }
-        return false;
-      });
+      }
     });
   }
 
@@ -394,18 +509,28 @@ class VideoService {
     _bufferCount.remove(videoUrl);
     _retryCount.remove(videoUrl);
     _lastUsed.remove(videoUrl);
+    _controllerUsageCount.remove(videoUrl);
   }
 
   static VideoPlayerController? getController(String videoUrl) {
-    _updateLastUsed(videoUrl);
-    return _controllers[videoUrl];
+    if (_controllers.containsKey(videoUrl)) {
+      _updateLRUQueue(videoUrl);
+      return _controllers[videoUrl];
+    }
+    return null;
   }
 
   static Future<void> disposeController(String videoUrl) async {
-    final controller = _controllers[videoUrl];
-    if (controller != null) {
-      await controller.dispose();
-      _cleanupController(videoUrl);
+    // Don't actually dispose, just decrement usage count
+    if (_controllerUsageCount.containsKey(videoUrl)) {
+      _controllerUsageCount[videoUrl] =
+          (_controllerUsageCount[videoUrl] ?? 1) - 1;
+      debugPrint(
+        '🎥 VideoService: Marked controller as potentially unused: $videoUrl',
+      );
+
+      // Clean up unused controllers if needed
+      _cleanupLeastUsedControllers();
     }
   }
 
@@ -423,5 +548,9 @@ class VideoService {
     _bufferCount.clear();
     _retryCount.clear();
     _lastUsed.clear();
+    _controllerUsageCount.clear();
+    _controllerLRUQueue.clear();
+    _pendingInitialization.clear();
+    _initializationWaiters.clear();
   }
 }
