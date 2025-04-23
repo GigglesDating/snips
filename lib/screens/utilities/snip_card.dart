@@ -208,7 +208,6 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
 
     // Handle state changes
     final isPlaying = _controller!.value.isPlaying;
-    debugPrint('isPlaying 🥲 $isPlaying');
     if (isPlaying != _isPlaying) {
       setState(() => _isPlaying = isPlaying);
       widget.onVideoStateChange?.call(isPlaying);
@@ -298,7 +297,7 @@ class _SnipCardState extends State<SnipCard> with TickerProviderStateMixin {
     final cardHeight = widget.customHeight ?? screenHeight;
 
     if (_controller == null) {
-      debugPrint('controller is null 🥲');
+      debugPrint('controller is null');
       return _buildLoadingView();
     }
 

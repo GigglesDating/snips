@@ -345,6 +345,7 @@ class _SnipsScreenState extends State<SnipsScreen>
               controller: _pageController,
               scrollDirection: Axis.vertical,
               onPageChanged: (index) {
+                debugPrint('changed page');
                 setState(() => _currentIndex = index);
                 _preloadVideo(index);
                 if (index == _snips.length - 2 &&
@@ -418,13 +419,6 @@ class _SnipsScreenState extends State<SnipsScreen>
               right: 0,
               child: const NavigationController(),
             ),
-
-          // Loading Indicator
-          Positioned(
-            top: screenHeight * 0.4,
-            left: screenWidth * 0.4,
-            child: _buildLoadingIndicator(),
-          ),
 
           // Network Indicator
           Positioned(
